@@ -89,6 +89,29 @@
             gl_FragColor = vec4(vertexcolor, 1);
         }
     </script>
+    <!-- vertex shader -->
+    <script  type="vertex-shader" id="skyboxVertexShader">
+        attribute vec4 a_position;
+        varying vec4 v_position;
+        void main() {
+          v_position = a_position;
+          gl_Position = a_position;
+          gl_Position.z = 1.0;
+        }
+    </script>
+
+    <script  type="fragment-shader" id="skyboxFragShader">
+        precision mediump float;
+
+        uniform samplerCube u_skybox;
+        uniform mat4 u_viewDirectionProjectionInverse;
+
+        varying vec4 v_position;
+        void main() {
+          vec4 t = u_viewDirectionProjectionInverse * v_position;
+          gl_FragColor = textureCube(u_skybox, normalize(t.xyz / t.w));
+        }
+    </script>
 </head>
 <body>
 	<canvas width="0" height="0" id="webgl-canvas"></canvas>
@@ -144,6 +167,13 @@
         var timer = 0;
         var music;
 
+        var g_skybox;
+        var g_skyboxProgram;
+        var positionLocation;
+        var positionBuffer;
+        var skyboxLocation;
+        var viewDirectionProjectionInverseLocation;
+
         // lighting
         var g_lightingData = {
             directionalLight: new Vector3(-1, -1, -0.5).normalize(), // light direction
@@ -166,6 +196,7 @@
                                       GLUtils.getDomShaderSrc("standardFragmentShader"));
             g_gridShader = new Shader(gl, GLUtils.getDomShaderSrc("gridVertexShader"),
                                     GLUtils.getDomShaderSrc("gridFragmentShader"));
+
 
             g_camera = new PerspectiveCamera(gl, 45, 0.1, 1000, canvas.width / canvas.height);
             g_cameraController = new OrbiterCameraController(canvas, g_camera);
@@ -190,8 +221,85 @@
             });
             music.play();
 
+
+
+
+            // skybox stuff
+            g_skyboxProgram = GLUtils.createShaderProgram(gl,
+                              GLUtils.getDomShaderSrc("skyboxVertexShader"),
+                              GLUtils.getDomShaderSrc("skyboxFragShader"),true);
+
+            positionLocation = gl.getAttribLocation(g_skyboxProgram, "a_position");
+            skyboxLocation = gl.getUniformLocation(g_skyboxProgram, "u_skybox");
+            viewDirectionProjectionInverseLocation = gl.getUniformLocation(g_skyboxProgram, "u_viewDirectionProjectionInverse");
+            // Create a buffer for positions
+            positionBuffer = gl.createBuffer();
+            // Bind it to ARRAY_BUFFER (think of it as ARRAY_BUFFER = positionBuffer)
+            gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+            // Put the positions in the buffer
+            setGeometry(gl);
+
+            var texture = gl.createTexture();
+            gl.bindTexture(gl.TEXTURE_CUBE_MAP, texture);
+
+            const faceInfos = [
+                {
+                  target: gl.TEXTURE_CUBE_MAP_POSITIVE_X,
+                  url: 'ressources/right.png',
+                },
+                {
+                  target: gl.TEXTURE_CUBE_MAP_NEGATIVE_X,
+                  url: 'ressources/left.png',
+                },
+                {
+                  target: gl.TEXTURE_CUBE_MAP_POSITIVE_Y,
+                  url: 'ressources/bottom.png',
+                },
+                {
+                  target: gl.TEXTURE_CUBE_MAP_NEGATIVE_Y,
+                  url: 'ressources/top.png',
+                },
+                {
+                  target: gl.TEXTURE_CUBE_MAP_POSITIVE_Z,
+                  url: 'ressources/front.png',
+                },
+                {
+                  target: gl.TEXTURE_CUBE_MAP_NEGATIVE_Z,
+                  url: 'ressources/back.png',
+                },
+            ];
+
+            faceInfos.forEach((faceInfo) => {
+            const {target, url} = faceInfo;
+
+                // Upload the canvas to the cubemap face.
+                const level = 0;
+                const internalFormat = gl.RGBA;
+                const width = 512;
+                const height = 512;
+                const format = gl.RGBA;
+                const type = gl.UNSIGNED_BYTE;
+
+                // setup each face so it's immediately renderable
+                gl.texImage2D(target, level, internalFormat, width, height, 0, format, type, null);
+
+                // Asynchronously load an image
+                const image = new Image();
+                image.src = url;
+                image.addEventListener('load', function() {
+                  // Now that the image has loaded make copy it to the texture.
+                gl.bindTexture(gl.TEXTURE_CUBE_MAP, texture);
+                gl.texImage2D(target, level, internalFormat, format, type, image);
+                gl.generateMipmap(gl.TEXTURE_CUBE_MAP);
+              });
+            });
+            gl.generateMipmap(gl.TEXTURE_CUBE_MAP);
+            gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+
             renderLoop = new RenderLoop(draw).start();
         }
+
+
 
         function draw(deltaTime){
             Input.update();
@@ -215,6 +323,72 @@
             gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
             g_cameraController.update();
 
+            gl.enable(gl.CULL_FACE);
+            gl.enable(gl.DEPTH_TEST);
+
+            // Clear the canvas AND the depth buffer.
+            gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+            // Tell it to use our program (pair of shaders)
+            gl.useProgram(g_skyboxProgram);
+
+            // Turn on the position attribute
+            gl.enableVertexAttribArray(positionLocation);
+
+            // Bind the position buffer.
+            gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+
+            // Tell the position attribute how to get data out of positionBuffer (ARRAY_BUFFER)
+            var size = 2;          // 2 components per iteration
+            var type = gl.FLOAT;   // the data is 32bit floats
+            var normalize = false; // don't normalize the data
+            var stride = 0;        // 0 = move forward size * sizeof(type) each iteration to get the next position
+            var offset = 0;        // start at the beginning of the buffer
+            gl.vertexAttribPointer(
+                positionLocation, size, type, normalize, stride, offset);
+
+            // Compute the projection matrix
+            var aspect = gl.canvas.clientWidth / gl.canvas.clientHeight;
+            var projectionMatrix =
+                Matrix4x4.perspective(1, 1, 2000, aspect);
+
+            // camera going in circle 2 units from origin looking at origin
+            var cameraPosition = new Vector3(Math.cos(Time.time * .1), 0, Math.sin(Time.time * .1));
+            var target = new Vector3(0, 0, 0);
+            var up = new Vector3(0, -1, 0);
+            // Compute the camera's matrix using look at.
+            var cameraMatrix = Matrix4x4.lookAtMatrix(cameraPosition, target, up);
+
+            // If you want to shake the skybox
+            cameraMatrix = cameraMatrix.applyRotationX(Math.cos(Time.time * 10));
+
+            // Make a view matrix from the camera matrix.
+            var viewMatrix = Matrix4x4.invert(cameraMatrix);
+
+            // We only care about direciton so remove the translation
+            viewMatrix[12] = 0;
+            viewMatrix[13] = 0;
+            viewMatrix[14] = 0;
+
+            var viewDirectionProjectionMatrix =
+                projectionMatrix.multM4(viewMatrix);
+            var viewDirectionProjectionInverseMatrix =
+                Matrix4x4.invert(viewDirectionProjectionMatrix);
+
+            // Set the uniforms
+            gl.uniformMatrix4fv(
+                viewDirectionProjectionInverseLocation, false,
+                viewDirectionProjectionInverseMatrix.toFloat32());
+
+            // Tell the shader to use texture unit 0 for u_skybox
+            gl.uniform1i(skyboxLocation, 0);
+
+            // let our quad pass the depth test at 1.0
+            gl.depthFunc(gl.LEQUAL);
+
+            // Draw the geometry.
+            gl.drawArrays(gl.TRIANGLES, 0, 1 * 6);
+
             // scale y by 0.1 up and down bps times a second.
             g_figure.transform.scale.x = 1 + Math.sin((Time.time * Math.PI * 2) * bps) * 0.1;
             g_figure.update();
@@ -228,8 +402,10 @@
             g_figureThree.update();
             g_figureThree.render(g_standardShader, g_camera, g_lightingData);
 
-            g_grid.render(g_gridShader, g_camera);
-        }
+            //gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+
+
+    }
 
         // this will be executed when the startbutton is pressed, run the program and delete the button
         function load(){
@@ -238,6 +414,19 @@
             setup();
             init();
         }
+
+    function setGeometry(gl) {
+      var positions = new Float32Array(
+        [
+          -1, -1,
+           1, -1,
+          -1,  1,
+          -1,  1,
+           1, -1,
+           1,  1,
+        ]);
+      gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
+    }
     </script>
 </body>
 </html>
