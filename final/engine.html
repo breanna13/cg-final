@@ -202,13 +202,19 @@
             g_cameraController = new OrbiterCameraController(canvas, g_camera);
             g_cameraController.target.set(0,1.5,0);
 
-            GLUtils.loadTexture(gl, "marble", "ressources/marble.png");
+            GLUtils.loadTexture(gl, "pink", "ressources/pink.png");
+            GLUtils.loadTexture(gl, "fur", "ressources/fur.jpeg");
+            GLUtils.loadTexture(gl, "mane", "ressources/mane.jpeg");
 
-            let material = {tint: [1,1,1,1],
-                            mainTexture: "marble"};
-            g_figure = new Model(new Transform(), OBJLoader.getMesh(gl, "pig", "ressources/pig.obj"), material);
-            g_figureTwo = new Model(new Transform(), OBJLoader.getMesh(gl, "kangaroo", "ressources/kangaroo.obj"), material);
-            g_figureThree = new Model(new Transform(), OBJLoader.getMesh(gl, "lion", "ressources/lion.obj"), material);
+            let pigMaterial = {tint: [1,1,1,1],
+                            mainTexture: "pink"};
+            let furMaterial = {tint: [1,1,1,1],
+                            mainTexture: "fur"};
+            let maneMaterial = {tint: [1,1,1,1],
+                            mainTexture: "mane"};
+            g_figure = new Model(new Transform(), OBJLoader.getMesh(gl, "pig", "ressources/pig.obj"), pigMaterial);
+            g_figureTwo = new Model(new Transform(), OBJLoader.getMesh(gl, "kangaroo", "ressources/kangaroo.obj"), furMaterial);
+            g_figureThree = new Model(new Transform(), OBJLoader.getMesh(gl, "lion", "ressources/lion.obj"), maneMaterial);
 
             g_grid = new GridAxis(gl);
 
